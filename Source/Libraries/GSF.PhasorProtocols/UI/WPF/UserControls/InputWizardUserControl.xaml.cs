@@ -82,18 +82,21 @@ namespace GSF.PhasorProtocols.UI.UserControls
             if (device.IsConcentrator)
             {
                 m_dataContext.ConnectToConcentrator = true;
+                m_dataContext.DetachChildren = DetachedDeviceLink.HasDetachedChildren(device.ConnectionString);
                 m_dataContext.PdcAcronym = device.Acronym;
                 m_dataContext.PdcName = device.Name;
                 m_dataContext.PdcVendorDeviceID = device.VendorDeviceID ?? 0;
 
-                ObservableCollection<Device> devices = Device.GetDevices(null, "WHERE ParentID = " + device.ID);
-                m_dataContext.DeviceIDs = devices.Select(childDevice => childDevice.ID).ToArray();
-                m_dataContext.DeviceAcronyms = devices.Select(childDevice => childDevice.Acronym).ToArray();
+                // Child devices are linked by ParentID or, for detached children modeled as standalone
+                // devices, by a "parentID" connection string value referencing the parent device
+                m_dataContext.Devices = Device
+                    .GetChildDevices(null, device.ID)
+                    .OrderBy(device => device.LoadOrder)
+                    .ToArray();
             }
             else
             {
-                m_dataContext.DeviceIDs = new[] { device.ID };
-                m_dataContext.DeviceAcronyms = new[] { device.Acronym };
+                m_dataContext.Devices = [device];
             }
 
             m_dataContext.StepTwoExpanded = true;

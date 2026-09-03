@@ -25,11 +25,13 @@
 
 using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Data;
 using System.Linq;
 using System.Reflection;
 using System.Security.Claims;
 using System.Web.Http;
+using GSF.Configuration;
 using GSF.Data;
 using GSF.Data.Model;
 using Newtonsoft.Json;
@@ -83,7 +85,17 @@ namespace GSF.Web.Model
             PrimaryKeyField = typeof(T).GetProperties().FirstOrDefault(p => p.GetCustomAttributes<PrimaryKeyAttribute>().Any())?.Name ?? "ID";
 
             ParentKey = typeof(T).GetProperties().FirstOrDefault(p => p.GetCustomAttributes<ParentKeyAttribute>().Any())?.Name ?? "";
-            Connection = typeof(T).GetCustomAttribute<SettingsCategoryAttribute>()?.SettingsCategory ?? "systemSettings";
+
+            // Prioritize Controller Attribute then Model Attribute
+            string connection = this.GetType().GetCustomAttribute<SettingsCategoryAttribute>()?.SettingsCategory
+                ?? typeof(T).GetCustomAttribute<SettingsCategoryAttribute>()?.SettingsCategory
+                ?? "systemSettings";
+            ConnectionFactory = () => new AdoDataConnection(connection);
+
+            // Suprressing obsolete warning to perform assignment
+            #pragma warning disable CS0618
+            Connection = connection;
+            #pragma warning restore CS0618
 
             PropertyInfo pi = typeof(T).GetProperties().FirstOrDefault(p => p.GetCustomAttributes<DefaultSortOrderAttribute>().Any());
             DefaultSortOrderAttribute dsoa = pi?.GetCustomAttribute<DefaultSortOrderAttribute>();
@@ -135,6 +147,12 @@ namespace GSF.Web.Model
             AllowSearch = typeof(T).GetCustomAttribute<AllowSearchAttribute>()?.AllowSearch ?? false;
 
             SearchSettings = typeof(T).GetCustomAttribute<AdditionalFieldSearchAttribute>();
+
+            ConfigurationFile config = ConfigurationFile.Current;
+            CategorizedSettingsElementCollection settings = config.Settings["systemSettings"];
+
+            PageSize = settings["DefaultRecordsPerPage"]?.ValueAsInt32() ?? null;
+
             Take = typeof(T).GetCustomAttribute<ReturnLimitAttribute>()?.Limit ?? null;
 
             SQLSearchModifier = typeof(T).GetMethods(BindingFlags.Public | BindingFlags.Static).FirstOrDefault(p => p.GetCustomAttributes<SQLSearchModifierAttribute>().Any());
@@ -153,10 +171,14 @@ namespace GSF.Web.Model
         #region [ Properties ]
         protected bool ViewOnly { get; } = false;
         protected bool AllowSearch { get; } = false;
+        protected virtual bool ReturnPivots { get; set; } = false;
         protected string CustomView { get; } = "";
         protected string PrimaryKeyField { get; set; } = "ID";
         protected string ParentKey { get; set; } = "";
-        protected string Connection { get; } = "systemSettings";
+
+        [Obsolete("Creating AdoDataConnection with this property may ignore DbTimeout Settings in some repositories, please use ConnectionFactory instead.")]
+        protected string Connection { get; } = "systemSettings"; 
+        public Func<AdoDataConnection> ConnectionFactory { get; set; }
         protected string DefaultSort { get; } = null;
         protected string GetRoles { get; } = "";
         protected string PostRoles { get; } = "Administrator";
@@ -164,7 +186,7 @@ namespace GSF.Web.Model
         protected string DeleteRoles { get; } = "Administrator";
         protected RecordRestriction RootQueryRestriction { get; } = null;
         protected int? Take { get; } = null;
-
+        protected int? PageSize { get; } = null;
         private string SecurityType = "";
         protected Dictionary<string, List<Claim>> Claims { get; } = new Dictionary<string, List<Claim>>();
         protected AdditionalFieldSearchAttribute SearchSettings { get; } = null;
@@ -184,7 +206,7 @@ namespace GSF.Web.Model
             if (ViewOnly || !GetAuthCheck())
                 return Unauthorized();
 
-            using (AdoDataConnection connection = new AdoDataConnection(Connection))
+            using (AdoDataConnection connection = ConnectionFactory())
             {
                 return Ok(new TableOperations<U>(connection).NewRecord());
             }
@@ -306,7 +328,7 @@ namespace GSF.Web.Model
             if (!PostAuthCheck() || ViewOnly)
                 return Unauthorized();
                 
-            using (AdoDataConnection connection = new AdoDataConnection(Connection))
+            using (AdoDataConnection connection = ConnectionFactory())
             {
                 U newRecord = record.ToObject<U>();
                 int result = new TableOperations<U>(connection).AddNewRecord(newRecord);
@@ -326,7 +348,7 @@ namespace GSF.Web.Model
             if (!PatchAuthCheck() || ViewOnly)
                 return Unauthorized();
 
-            using (AdoDataConnection connection = new AdoDataConnection(Connection))
+            using (AdoDataConnection connection = ConnectionFactory())
             {
                 int result = new TableOperations<U>(connection).AddNewOrUpdateRecord(record);
 
@@ -358,7 +380,7 @@ namespace GSF.Web.Model
             if (!DeleteAuthCheck() || ViewOnly)
                 return Unauthorized();
 
-            using (AdoDataConnection connection = new AdoDataConnection(Connection))
+            using (AdoDataConnection connection = ConnectionFactory())
             {
                 string tableName = new TableOperations<U>(connection).TableName;
 
@@ -421,7 +443,7 @@ namespace GSF.Web.Model
 
             using DataTable table = GetSearchResults(postData, page);
             int recordCount = CountSearchResults(postData);
-            int recordsPerPage = Take ?? 50;
+            int recordsPerPage = PageSize ?? 50;
 
             return Ok(new PagedResults()
             {
@@ -492,7 +514,7 @@ namespace GSF.Web.Model
 
             using DataTable table = GetSearchResults(postData, page);
             int recordCount = CountSearchResults(postData);
-            int recordsPerPage = Take ?? 50;
+            int recordsPerPage = PageSize ?? 50;
 
             return Ok(new PagedResults()
             {
@@ -540,7 +562,7 @@ namespace GSF.Web.Model
             if (string.IsNullOrEmpty(orderBy) && !string.IsNullOrEmpty(DefaultSort))
                 orderString = DefaultSort;
 
-            using (AdoDataConnection connection = new AdoDataConnection(Connection))
+            using (AdoDataConnection connection = ConnectionFactory())
             {
                 if (CustomView == String.Empty)
                 {
@@ -585,7 +607,7 @@ namespace GSF.Web.Model
         protected virtual T QueryRecordWhere(string filterExpression, params object[] parameters)
         {
             
-            using (AdoDataConnection connection = new AdoDataConnection(Connection))
+            using (AdoDataConnection connection = ConnectionFactory())
             {
                 if (CustomView == String.Empty)
                     return new TableOperations<T>(connection).QueryRecordWhere(filterExpression, parameters);
@@ -621,7 +643,7 @@ namespace GSF.Web.Model
             if (string.IsNullOrEmpty(sortBy) && !string.IsNullOrEmpty(DefaultSort))
                 orderString = DefaultSort;
 
-            using (AdoDataConnection connection = new AdoDataConnection(Connection))
+            using (AdoDataConnection connection = ConnectionFactory())
             {
                 if (CustomView == String.Empty)
                 {
@@ -750,7 +772,7 @@ namespace GSF.Web.Model
             else if (!string.IsNullOrEmpty(conditions))
                 whereClause += $" AND {conditions}";
 
-            using (AdoDataConnection connection = new AdoDataConnection(Connection))
+            using (AdoDataConnection connection = ConnectionFactory())
             {
                 string tableName = TableOperations<T>.GetTableName();
 
@@ -810,14 +832,14 @@ namespace GSF.Web.Model
                                 FROM tempdb.sys.columns WHERE  object_id = Object_id('tempdb..#Tbl') AND name NOT LIKE 'AFV%';";
                     sqlNoPivot = string.Join(",", connection.RetrieveData(sqlNoPivot).Select().Select(r => r[0].ToString()));
                     sql = $@"
-                        SELECT {limit} {sqlNoPivot} FROM {tblSelect}
+                        SELECT {limit} {(ReturnPivots ? "*" : sqlNoPivot)} FROM {tblSelect}
                         {whereClause}
                         ORDER BY {postData.OrderBy} {(postData.Ascending ? "ASC" : "DESC")}";
                 }
 
                 if (page is not null)
                 {
-                    int recordsPerPage = Take ?? 50;
+                    int recordsPerPage = PageSize ?? 50;
                     sql += $" OFFSET {page * recordsPerPage} ROWS FETCH NEXT {recordsPerPage} ROWS ONLY";
                 }
 
@@ -850,7 +872,7 @@ namespace GSF.Web.Model
             else if (!string.IsNullOrEmpty(conditions))
                 whereClause += $" AND {conditions}";
 
-            using AdoDataConnection connection = new(Connection);
+            using AdoDataConnection connection = ConnectionFactory();
             string tableName = TableOperations<T>.GetTableName();
 
             string sql = "";

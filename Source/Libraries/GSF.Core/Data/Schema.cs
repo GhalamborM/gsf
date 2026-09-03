@@ -1912,9 +1912,9 @@ namespace GSF.Data
             {
                 int count = 0;
 
-                foreach (Field field in m_fields)
+                foreach (Field @field in m_fields)
                 {
-                    if (field.IsPrimaryKey)
+                    if (@field.IsPrimaryKey)
                         count += 1;
                 }
 
@@ -1929,9 +1929,9 @@ namespace GSF.Data
         {
             get
             {
-                foreach (Field field in m_fields)
+                foreach (Field @field in m_fields)
                 {
-                    if (field.IsPrimaryKey && field.ForeignKeys.Count > 0)
+                    if (@field.IsPrimaryKey && @field.ForeignKeys.Count > 0)
                         return true;
                 }
                 return false;
@@ -1945,9 +1945,9 @@ namespace GSF.Data
         {
             get
             {
-                foreach (Field field in m_fields)
+                foreach (Field @field in m_fields)
                 {
-                    if (field.IsForeignKey)
+                    if (@field.IsForeignKey)
                         return true;
                 }
                 return false;
@@ -1972,10 +1972,10 @@ namespace GSF.Data
         {
             get
             {
-                foreach (Field field in m_fields)
+                foreach (Field @field in m_fields)
                 {
-                    if (field.AutoIncrement)
-                        return field;
+                    if (@field.AutoIncrement)
+                        return @field;
                 }
 
                 return null;
@@ -2052,6 +2052,10 @@ namespace GSF.Data
                 {
                     // We don't want to circle back on ourselves
                     table = foreignKey.ForeignKey.Table;
+
+                    if (table is null)
+                        continue;
+
                     tableIsInStack = tableStack.Exists(tbl => string.Compare(tbl.Name, table.Name, StringComparison.OrdinalIgnoreCase) == 0);
 
                     if (tableIsInStack)
@@ -2221,6 +2225,12 @@ namespace GSF.Data
             {
                 try
                 {
+                    if (m_parent is null)
+                    {
+                        m_rows = 0;
+                        return;
+                    }
+
                     IDbCommand command = m_parent.Parent.Connection.CreateCommand();
 
                     command.CommandText = "SELECT COUNT(*) FROM " + SQLEscapedName;

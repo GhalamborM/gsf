@@ -60,6 +60,13 @@
     <Reference Include="System.Data.DataSetExtensions" />
     <Reference Include="System.Design" />
     <Reference Include="System.Drawing" />
+    <Reference Include="System.Memory, Version=4.0.2.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\..\Dependencies\NuGet\System.Memory.4.5.5\lib\net461\System.Memory.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Runtime.CompilerServices.Unsafe, Version=6.0.3.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\..\Dependencies\NuGet\System.Runtime.CompilerServices.Unsafe.6.1.2\lib\net462\System.Runtime.CompilerServices.Unsafe.dll</HintPath>
+    </Reference>
     <Reference Include="System.Runtime.Serialization" />
     <Reference Include="System.Runtime.Serialization.Formatters.Soap" />
     <Reference Include="System.Windows.Forms" />
@@ -103,6 +110,7 @@
     <Compile Include="DataFrameBase.cs" />
     <Compile Include="DataFrameCollection.cs" />
     <Compile Include="DataFrameParsingState.cs" />
+    <Compile Include="DetachedDeviceLink.cs" />
     <Compile Include="DigitalDefinitionBase.cs" />
     <Compile Include="DigitalDefinitionCollection.cs" />
     <Compile Include="DigitalValueBase.cs" />
@@ -157,6 +165,7 @@
     <Compile Include="IHeaderFrameParsingState.cs" />
     <Compile Include="IPhasorDefinition.cs" />
     <Compile Include="IPhasorValue.cs" />
+    <Compile Include="IsExternalInit.cs" />
     <Compile Include="MultiProtocolFrameParser.cs" />
     <Compile Include="NamespaceDoc.cs" />
     <Compile Include="PhasorDefinitionBase.cs" />
@@ -291,6 +300,29 @@
     <Compile Include="Macrodyne\FrequencyValue.cs" />
     <Compile Include="Macrodyne\PhasorDefinition.cs" />
     <Compile Include="Macrodyne\PhasorValue.cs" />
+    <Compile Include="ReplayTimer.cs" />
+    <Compile Include="RequiredMemberAttribute.cs" />
+    <Compile Include="SelCWS\AnalogDefinition.cs" />
+    <Compile Include="SelCWS\AnalogValue.cs" />
+    <Compile Include="SelCWS\Common.cs" />
+    <Compile Include="SelCWS\CommonFrameHeader.cs" />
+    <Compile Include="SelCWS\ConfigurationCell.cs" />
+    <Compile Include="SelCWS\ConfigurationCellCollection.cs" />
+    <Compile Include="SelCWS\ConfigurationFrame.cs" />
+    <Compile Include="SelCWS\ConnectionParameters.cs" />
+    <Compile Include="SelCWS\DataCell.cs" />
+    <Compile Include="SelCWS\DataCellCollection.cs" />
+    <Compile Include="SelCWS\DataFrame.cs" />
+    <Compile Include="SelCWS\FrameParser.cs" />
+    <Compile Include="SelCWS\FrequencyDefinition.cs" />
+    <Compile Include="SelCWS\FrequencyValue.cs" />
+    <Compile Include="SelCWS\IEEEC37_118PhaseEstimator.cs" />
+    <Compile Include="SelCWS\IPhaseEstimator.cs" />
+    <Compile Include="SelCWS\NamespaceDoc.cs" />
+    <Compile Include="SelCWS\PhaseEstimate.cs" />
+    <Compile Include="SelCWS\PhasorDefinition.cs" />
+    <Compile Include="SelCWS\PhasorValue.cs" />
+    <Compile Include="SelCWS\SlidingDftPhaseEstimator.cs" />
     <Compile Include="SelFastMessage\CommandFrame.cs" />
     <Compile Include="SelFastMessage\Common.cs" />
     <Compile Include="SelFastMessage\CommonFrameHeader.cs" />
@@ -311,6 +343,7 @@
   <ItemGroup>
     <None Include="GSF.PhasorProtocols.ruleset" />
     <None Include="GSF.PhasorProtocols.nuspec" />
+    <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
     <CodeAnalysisDictionary Include="CodeAnalysisDictionary.xml" />
@@ -329,6 +362,7 @@
       <Name>GSF.TimeSeries</Name>
     </ProjectReference>
   </ItemGroup>
+  <ItemGroup />
   <Target Name="AfterBuild">
     <CallTarget Targets="SignBuild" />
   </Target>

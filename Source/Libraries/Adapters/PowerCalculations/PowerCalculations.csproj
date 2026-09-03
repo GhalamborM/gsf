@@ -54,6 +54,9 @@
     <Reference Include="System" />
     <Reference Include="System.Configuration" />
     <Reference Include="System.Core" />
+    <Reference Include="System.Runtime.CompilerServices.Unsafe, Version=6.0.3.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\..\..\Dependencies\NuGet\System.Runtime.CompilerServices.Unsafe.6.1.2\lib\net462\System.Runtime.CompilerServices.Unsafe.dll</HintPath>
+    </Reference>
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
     <Reference Include="System.Data" />
@@ -66,11 +69,13 @@
     <Compile Include="PowerMultiCalculator\MeasurementRepository.cs" />
     <Compile Include="PowerMultiCalculator\PowerCalculation.cs" />
     <Compile Include="PowerMultiCalculator\PowerCalculationConfigurationValidation.cs" />
+    <Compile Include="PowerMultiCalculator\PowerFactorSignConvention.cs" />
     <Compile Include="PowerMultiCalculator\PowerMeasurement.cs" />
     <Compile Include="PowerMultiCalculator\PowerMultiCalculatorAdapter.cs" />
     <Compile Include="PowerMultiCalculator\RunningAverage.cs" />
     <Compile Include="AngleDifferenceCalculator.cs" />
     <Compile Include="ImpedanceCalculator.cs" />
+    <Compile Include="PhasorAddition.cs" />
     <Compile Include="VoltageAdjustmentStrategy.cs" />
     <Compile Include="SequenceCalculator.cs" />
     <Compile Include="PowerCalculator.cs" />
@@ -98,6 +103,9 @@
       <Project>{c4f3c41d-d76a-4283-8732-681b67b7ad74}</Project>
       <Name>PhasorProtocolAdapters</Name>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Target Name="AfterBuild">

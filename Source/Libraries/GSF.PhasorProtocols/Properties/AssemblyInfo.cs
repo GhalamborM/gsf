@@ -24,7 +24,11 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+
+// Expose internal types (e.g., SlidingDftPhaseEstimator, IEEEC37_118PhaseEstimator) to the unit-test assembly
+[assembly: InternalsVisibleTo("GSF.PhasorProtocols.Tests")]
 
 // Informational attributes.
 [assembly: AssemblyCompany("Grid Protection Alliance")]
@@ -48,8 +52,8 @@ using System.Runtime.InteropServices;
 [assembly: Guid("6d59b0ed-1991-4f12-a739-2cf8543dd9b2")]
 
 // Assembly identity attributes.
-[assembly: AssemblyVersion("2.4.217.0")]
-[assembly: AssemblyFileVersion("2.4.217.0")]
+[assembly: AssemblyVersion("2.4.318.0")]
+[assembly: AssemblyFileVersion("2.4.318.0")]
 
 [assembly: SuppressMessage("Microsoft.Usage", "CA2243:AttributeStringLiteralsShouldParseCorrectly")]
-[assembly: AssemblyInformationalVersion("2.4.217-beta")]
+[assembly: AssemblyInformationalVersion("2.4.318-beta")]

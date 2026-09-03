@@ -26,8 +26,10 @@
 //******************************************************************************************************
 
 using System;
+using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using System.Windows;
 using System.Windows.Input;
 using GSF.IO;
 using GSF.Security;
@@ -45,6 +47,7 @@ namespace GSF.TimeSeries.UI.Commands
         private string m_roles;
         private string m_userControlAssembly;
         private string m_userControlPath;
+        private string m_externalProcessPath;
         private string m_description;
 
         //Events
@@ -82,6 +85,7 @@ namespace GSF.TimeSeries.UI.Commands
             set
             {
                 m_roles = value;
+                OnCanExecuteChanged();
             }
         }
 
@@ -112,6 +116,21 @@ namespace GSF.TimeSeries.UI.Commands
             set
             {
                 m_userControlPath = value;
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets path to the external process to be executed.
+        /// </summary>
+        public string ExternalProcessPath
+        {
+            get
+            {
+                return m_externalProcessPath;
+            }
+            set
+            {
+                m_externalProcessPath = value;
             }
         }
 
@@ -154,6 +173,8 @@ namespace GSF.TimeSeries.UI.Commands
         /// Handles <see cref="ICommand"/> action. 
         /// Loads user control as defined in the <see cref="UserControlPath"/> property from assembly name set in the 
         /// <see cref="UserControlAssembly"/> property.
+        /// - OR -
+        /// Executes external process as defined in the <see cref="ExternalProcessPath"/> property.
         /// </summary>
         /// <param name="parameter">
         /// Data used by the <see cref="MenuCommand"/>. If the <see cref="MenuCommand"/> does not require
@@ -161,14 +182,41 @@ namespace GSF.TimeSeries.UI.Commands
         /// </param>
         public void Execute(object parameter)
         {
+            bool hasUserControlAssembly = !string.IsNullOrEmpty(UserControlAssembly);
+            bool hasUserControlPath = !string.IsNullOrEmpty(UserControlPath);
+            bool hasExternalProcessPath = !string.IsNullOrEmpty(ExternalProcessPath);
+
+            if (!hasExternalProcessPath && hasUserControlAssembly != hasUserControlPath)
+                throw new InvalidOperationException("UserControlAssembly and UserControlPath must both be populated or neither when ExternalProcessPath is not set");
+
+            if (hasUserControlAssembly == hasExternalProcessPath)
+                throw new InvalidOperationException("One of UserControlAssembly and ExternalProcessPath must be populated, but not both");
+
+            if (hasExternalProcessPath)
+            {
+                try
+                {
+                    // If ExternalProcessPath requires arguments, they can be specified in the UserControlPath property
+                    Process.Start(ExternalProcessPath, UserControlPath)?.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    CommonFunctions.Popup($"Failed to launch external process \"{ExternalProcessPath}\": {ex.Message}", "Menu Launch Exception:", MessageBoxImage.Error);
+                    CommonFunctions.LogException(null, "Menu Launch Exception", ex);
+                }
+                return;
+            }
+
             try
             {
-                Assembly assembly = Assembly.LoadFrom(FilePath.GetAbsolutePath(m_userControlAssembly));
-                CommonFunctions.LoadUserControl(m_description, assembly.GetType(m_userControlPath));
+                Assembly assembly = Assembly.LoadFrom(FilePath.GetAbsolutePath(UserControlAssembly));
+                CommonFunctions.LoadUserControl(m_description, assembly.GetType(UserControlPath));
             }
             catch (Exception ex)
             {
-                throw new InvalidOperationException(string.Format("Failed to create user control {0}: {1}", m_userControlPath, ex.Message), ex);
+                CommonFunctions.Popup($"Failed to create user control {UserControlAssembly}: {ex.Message}", "Menu Load Exception:", MessageBoxImage.Error);
+                CommonFunctions.LogException(null, "Menu Load Exception", ex);
+
             }
         }
 

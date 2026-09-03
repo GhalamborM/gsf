@@ -27,14 +27,13 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using GSF;
 using GSF.IO;
 using GSF.PhasorProtocols;
-using GSF.PhasorProtocols.Anonymous;
+using GSF.PhasorProtocols.SelCWS;
 using GSF.TimeSeries;
-using GSF.Units;
 using GSF.Units.EE;
+using ConfigurationCell = GSF.PhasorProtocols.Anonymous.ConfigurationCell;
 
 namespace ProtocolTester
 {
@@ -44,7 +43,7 @@ namespace ProtocolTester
     // ReSharper disable ConvertToConstant.Local
     public class Program
     {
-        private static readonly bool WriteLogs = false;
+        private static readonly bool WriteLogs = true;
         private static readonly bool TestConcentrator = false;
         private static readonly bool BinaryCapture = false;
 
@@ -57,6 +56,9 @@ namespace ProtocolTester
         private static uint measurementID;
         private static long frameCount;
         private static long byteCount;
+        private static long lastBytesProcessedTime;
+        private static long lastFrameDisplayTime;
+        private static bool wroteHeader;
 
         public static void Main(string[] args)
         {
@@ -99,7 +101,7 @@ namespace ProtocolTester
 
             // Define the connection string
             //parser.ConnectionString = @"phasorProtocol=IeeeC37_118V1; transportProtocol=UDP; localport=5000; server=233.123.123.123:5000; interface=0.0.0.0";
-            parser.ConnectionString = @"phasorProtocol=Ieee1344; transportProtocol=File; file=D:\Projects\openPDC\Source\Applications\openPDC\openPDC\Sample1344.PmuCapture";
+            //parser.ConnectionString = @"phasorProtocol=Ieee1344; transportProtocol=File; file=D:\Projects\openPDC\Source\Applications\openPDC\openPDC\Sample1344.PmuCapture";
             //parser.ConnectionString = @"phasorProtocol=Macrodyne; accessID=1; transportProtocol=File; skipDisableRealTimeData = true; file=C:\Users\Ritchie\Desktop\Development\Macrodyne\ING.out; iniFileName=C:\Users\Ritchie\Desktop\Development\Macrodyne\BCH18Aug2011.ini; deviceLabel=ING1; protocolVersion=G";
             //parser.ConnectionString = @"phasorProtocol=Iec61850_90_5; accessID=1; transportProtocol=UDP; skipDisableRealTimeData = true; localPort=102; interface=0.0.0.0; commandChannel={transportProtocol=TCP; server=172.21.1.201:4712; interface=0.0.0.0}";
             //parser.ConnectionString = @"phasorProtocol=FNET; transportProtocol=TCP; server=172.21.4.100:4001; interface=0.0.0.0; isListener=false";
@@ -110,6 +112,7 @@ namespace ProtocolTester
             //parser.ConnectionString = @"phasorProtocol=IEEEC37_118V1; transportProtocol=Serial; port=COM6; baudRate=115200; dataBits=8; stopBits=One; parity=None; dtrEnable=false; rtsEnable=false; autoStartDataParsingSequence=false; disableRealTimeDataOnStop=false";
             //parser.ConnectionString = @"phasorProtocol=IEEEC37_118V2; transportProtocol=tcp; accessID=1; server=localhost:4713; interface=0.0.0.0; isListener=false";
             //parser.ConnectionString = @"phasorProtocol=IEEEC37_118V2; transportProtocol=File; file=D:\Projects\gsf\Build\Output\Debug\Tools\ProtocolTester\Capture.PmuCapture";
+            parser.ConnectionString = @"phasorProtocol=SelCWS; transportProtocol=UDP; localport=1347; interface=0.0.0.0"; // ; frameRate=1500
 
             Dictionary<string, string> settings = parser.ConnectionString.ParseKeyValuePairs();
 
@@ -167,14 +170,13 @@ namespace ProtocolTester
             if (BinaryCapture)
                 m_capture.Write(e.Argument2, e.Argument3, e.Argument4);
 
-            const int interval = (int)SI.Kilo * 2;
-
-            bool showMessage = byteCount + e.Argument4 >= (byteCount / interval + 1) * interval;
-
             byteCount += e.Argument4;
 
-            if (showMessage)
-                Console.WriteLine("{0:N0} bytes of data have been processed so far...", byteCount);
+            if (!(TimeSpan.FromTicks(DateTime.UtcNow.Ticks - lastBytesProcessedTime).TotalSeconds >= 4))
+                return;
+            
+            Console.WriteLine("{0:N0} bytes of data have been processed so far...", byteCount);
+            lastBytesProcessedTime = DateTime.UtcNow.Ticks;
         }
 
         private static void parser_ReceivedDataFrame(object sender, EventArgs<IDataFrame> e)
@@ -182,7 +184,44 @@ namespace ProtocolTester
             IDataFrame dataFrame = e.Argument;
 
             if (WriteLogs)
-                m_exportFile.WriteLine(dataFrame.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff") + string.Concat(dataFrame.Cells.Select(cell => "," + cell.FrequencyValue.Frequency.ToString())));
+            {
+                if (dataFrame.Cells.Count > 0 && dataFrame is DataFrame cwsDataFrame)
+                {
+                    if (!wroteHeader)
+                    {
+                        wroteHeader = true;
+
+                        m_exportFile.Write("Timestamp, Nanoseconds, Short Time");
+
+                        for (int i = 0; i < cwsDataFrame.Cells.Count; i++)
+                        {
+                            DataCell cell = cwsDataFrame.Cells[i];
+
+                            for (int j = 0; j < cell.AnalogValues.Count; j++)
+                                m_exportFile.Write($", {cell.AnalogValues[j].Label} [Analog {j + 1}]");
+                        }
+
+                        m_exportFile.WriteLine();
+                    }
+
+                    m_exportFile.Write($"{cwsDataFrame.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff")}");
+                    m_exportFile.Write($", '{cwsDataFrame.NanosecondTimestamp}");
+
+                    // Get last 10 characters of timestamp string to fit Excel numeric limits
+                    string timestampString = cwsDataFrame.NanosecondTimestamp.ToString();
+                    m_exportFile.Write($", {timestampString.Substring(timestampString.Length - 10)}");
+
+                    for (int i = 0; i < cwsDataFrame.Cells.Count; i++)
+                    {
+                        DataCell cell = cwsDataFrame.Cells[i];
+
+                        foreach (IAnalogValue analog in cell.AnalogValues)
+                            m_exportFile.Write($", {analog.Value}");
+                    }
+
+                    m_exportFile.WriteLine();
+                }
+            }
 
             // Pass frame measurements to concentrator...
             if (TestConcentrator)
@@ -194,35 +233,36 @@ namespace ProtocolTester
             //IDataCell device = dataFrame.Cells[0];
             //Console.Write(device.FrequencyValue.Frequency.ToString("0.000Hz "));
 
-            // Print information each time we receive 60 frames (every 2 seconds for 30 frames per second)
-            // Also check to assure the DataFrame has at least one Cell
-            if (frameCount % 60 == 0)
+            // Print information each time we receive, every 2 seconds or so
+            if (DateTime.UtcNow.Ticks - lastFrameDisplayTime < TimeSpan.FromSeconds(2).Ticks)
+                return;
+
+            lastFrameDisplayTime = DateTime.UtcNow.Ticks;
+
+            Console.WriteLine($"Received {frameCount:N0} data frames so far - parsed timestamp = \"{dataFrame.Timestamp:yyyy-MM-dd HH:mm:ss.fff}\"...");
+
+            if (dataFrame.Cells.Count > 0)
             {
-                Console.WriteLine("Received {0} data frames so far - parsed timestamp = \"{1}\"...", frameCount, dataFrame.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+                IDataCell device = dataFrame.Cells[0];
+                Console.WriteLine("    Last frequency: {0}Hz", device.FrequencyValue.Frequency);
 
-                if (dataFrame.Cells.Count > 0)
+                for (int x = 0; x < device.PhasorValues.Count; x++)
                 {
-                    IDataCell device = dataFrame.Cells[0];
-                    Console.WriteLine("    Last frequency: {0}Hz", device.FrequencyValue.Frequency);
-
-                    for (int x = 0; x < device.PhasorValues.Count; x++)
-                    {
-                        Console.WriteLine("      PMU {0} Phasor {1} Angle = {2}", device.IDCode, x, device.PhasorValues[x].Angle);
-                        Console.WriteLine("      PMU {0} Phasor {1} Magnitude = {2}", device.IDCode, x, device.PhasorValues[x].Magnitude);
-                    }
-
-                    Console.WriteLine("    Last Timestamp: {0}", device.GetStatusFlagsMeasurement().Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+                    Console.WriteLine("      PMU {0} Phasor {1} Angle = {2}", device.IDCode, x, device.PhasorValues[x].Angle);
+                    Console.WriteLine("      PMU {0} Phasor {1} Magnitude = {2}", device.IDCode, x, device.PhasorValues[x].Magnitude);
                 }
 
-                if ((object)concentrator != null)
-                    Console.WriteLine(concentrator.Status);
+                Console.WriteLine("    Last Timestamp: {0}", device.GetStatusFlagsMeasurement().Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff"));
             }
+
+            if (concentrator is not null)
+                Console.WriteLine(concentrator.Status);
         }
 
         private static void parser_ReceivedConfigurationFrame(object sender, EventArgs<IConfigurationFrame> e)
         {
             // Notify the user when a configuration frame is received
-            Console.WriteLine("Received configuration frame with {0} device(s)", e.Argument.Cells.Count);
+            Console.WriteLine("Received configuration frame with {0:N0} device(s) at frame rate {1:N0}", e.Argument.Cells.Count, e.Argument.FrameRate);
         }
 
         private static void parser_ParsingException(object sender, EventArgs<Exception> e)
@@ -234,8 +274,7 @@ namespace ProtocolTester
         private static void parser_ConnectionException(object sender, EventArgs<Exception, int> e)
         {
             // Display which connection attempt failed and the exception that occurred
-            Console.WriteLine("Connection attempt {0} failed due to exception: {1}",
-                e.Argument2, e.Argument1);
+            Console.WriteLine("Connection attempt {0} failed due to exception: {1}", e.Argument2, e.Argument1);
         }
 
         private static void parser_ConnectionEstablished(object sender, EventArgs e)

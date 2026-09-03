@@ -1339,7 +1339,6 @@ public sealed class CommonPhasorServices : FacileActionAdapterBase
         settings.Add("FileName", $"Statistics{Path.DirectorySeparatorChar}stat_archive.d", "Name of the statistics working archive file including its path.");
         settings.Add("CacheWrites", true, "True if writes are to be cached for performance; otherwise False - this defaults to True for the statistics working archive file.");
         settings.Add("ConserveMemory", false, "True if attempts are to be made to conserve memory; otherwise False - this defaults to False for the statistics working archive file.");
-        settings["CacheWrites"].Update(true);
         settings["ConserveMemory"].Update(false);
 
         settings = configFile.Settings["statMetadataService"];
@@ -1495,6 +1494,11 @@ public sealed class CommonPhasorServices : FacileActionAdapterBase
                 if (connectionSettings is not null && connectionSettings.TryGetValue("forwardOnly", out string setting) && setting.ParseBoolean())
                     continue;
 
+                // Do not automatically add quality measurement for a detached child device, i.e., a concentrator
+                // child modeled as a standalone device - quality flags belong to the parent connection
+                if (connectionSettings is not null && connectionSettings.ContainsKey(DetachedDeviceLink.ParentIDKey) && !device["IsConcentrator"].ToNonNullString().ParseBoolean())
+                    continue;
+
                 deviceID = device.ConvertField<int>("ID");
                 acronym = device.Field<string>("Acronym");
                 signalReference = SignalReference.ToString(acronym, SignalKind.Quality);
@@ -1543,8 +1547,13 @@ public sealed class CommonPhasorServices : FacileActionAdapterBase
 
             // Make sure devices associated with a concentrator do not have any extraneous input stream statistic measurements - this can happen
             // when a device was once a direct connect device but now is part of a concentrator...
-            foreach (DataRow inputStream in database.Connection.RetrieveData(database.AdapterType, $"SELECT * FROM Device WHERE (IsConcentrator = 0 AND ParentID IS NOT NULL) AND NodeID = {nodeIDQueryString} AND ProtocolID IN ({protocolIDs})").Rows)
+            foreach (DataRow inputStream in database.Connection.RetrieveData(database.AdapterType, $"SELECT * FROM Device WHERE IsConcentrator = 0 AND NodeID = {nodeIDQueryString} AND ProtocolID IN ({protocolIDs})").Rows)
             {
+                // Concentrator children are linked by ParentID or, for detached children modeled as standalone
+                // devices, by a "parentID" connection string value referencing the parent device
+                if (!inputStream.ConvertNullableField<int>("ParentID").HasValue && !DetachedDeviceLink.IsDetachedChild(inputStream.Field<string>("ConnectionString")))
+                    continue;
+
                 firstStatisticExisted = false;
 
                 foreach (DataRow statistic in inputStreamStatistics)

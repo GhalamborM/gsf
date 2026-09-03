@@ -65,6 +65,9 @@
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
+    <Reference Include="System.Runtime.CompilerServices.Unsafe, Version=6.0.3.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\..\..\Dependencies\NuGet\System.Runtime.CompilerServices.Unsafe.6.1.2\lib\net462\System.Runtime.CompilerServices.Unsafe.dll</HintPath>
+    </Reference>
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
     <Reference Include="Microsoft.CSharp" />
@@ -73,6 +76,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Dnp3InputAdapter.cs" />
+    <Compile Include="Dnp3OutputAdapter.cs" />
+    <Compile Include="IaonProxyLogHandler.cs" />
     <Compile Include="IsExternalInit.cs" />
     <Compile Include="MasterConfiguration.cs" />
     <Compile Include="MeasurementLookup.cs" />
@@ -94,6 +99,14 @@
     <Content Include="..\..\..\Dependencies\Microsoft\VC_redist.x64.exe">
       <Link>VC_redist.x64.exe</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\..\..\Dependencies\OpenSSL\libcrypto-1_1-x64.dll">
+      <Link>libcrypto-1_1-x64.dll</Link>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\..\..\Dependencies\OpenSSL\libssl-1_1-x64.dll">
+      <Link>libssl-1_1-x64.dll</Link>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
     <Content Include="ExampleConfigurations\comms.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

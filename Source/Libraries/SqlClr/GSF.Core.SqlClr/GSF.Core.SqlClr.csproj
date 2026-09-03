@@ -7,8 +7,8 @@
     <AssemblyTitle>GSF.Core.SqlClr</AssemblyTitle>
     <Product>GSF.Core.SqlClr</Product>
     <Copyright>Copyright ©  2016</Copyright>
-    <AssemblyVersion>2.4.217.0</AssemblyVersion>
-    <FileVersion>2.4.217.0</FileVersion>
+    <AssemblyVersion>2.4.318.0</AssemblyVersion>
+    <FileVersion>2.4.318.0</FileVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <OutputPath>..\..\..\..\Build\Output\$(Configuration)\Libraries\SqlClr\</OutputPath>
@@ -33,6 +33,9 @@
   <ItemGroup>
     <Content Include="GSF.Core.Register.sql" />
     <Content Include="README.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Version="6.1.2" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\..\Generators\GSF.CodeGenerators\GSF.CodeGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />

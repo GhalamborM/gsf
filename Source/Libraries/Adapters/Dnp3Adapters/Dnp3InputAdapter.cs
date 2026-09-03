@@ -29,7 +29,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
-using System.Text;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Xml.Serialization;
 using Automatak.DNP3.Adapter;
@@ -42,10 +42,10 @@ using GSF.TimeSeries.Adapters;
 namespace DNP3Adapters;
 
 /// <summary>
-/// Input adapter that reads measurements from a remote dnp3 endpoint.
+/// Input adapter that reads measurements from a remote DNP3 endpoint.
 /// </summary>
-[Description("DNP3: Reads measurements from a remote dnp3 endpoint")]
-public class DNP3InputAdapter : InputAdapterBase
+[Description("DNP3: Acts as a DNP3 master client which reads measurements from a remote DNP3 endpoint.")]
+public class DNP3InputAdapter : InputAdapterBase, IDnp3Adapter
 {
     #region [ Members ]
 
@@ -59,58 +59,9 @@ public class DNP3InputAdapter : InputAdapterBase
     }
 
     // Class used to proxy dnp3 manager log entries to Iaon session
-    private class IaonProxyLogHandler : ILogHandler
-    {
-        /// <summary>
-        /// Handler for log entries.
-        /// </summary>
-        /// <param name="entry"><see cref="LogEntry"/> to handle.</param>
-        public void Log(LogEntry entry)
-        {
-            // We avoid race conditions by always making sure access to status proxy is locked - this only
-            // contends with adapter initialization and disposal so contention will not be the normal case
-            lock (s_adapters)
-            {
-                if (s_statusProxy is null || s_statusProxy.m_disposed)
-                    return;
-
-                if ((entry.filter.Flags & LogFilters.ERROR) > 0)
-                {
-                    // Expose errors through exception processor
-                    InvalidOperationException exception = new(FormatLogEntry(entry));
-                    s_statusProxy.OnProcessException(MessageLevel.Error, exception);
-                }
-                else
-                {
-                    // For other messages, we just expose as a normal status
-                    string message = FormatLogEntry(entry);
-
-                    if ((entry.filter.Flags & LogFilters.WARNING) > 0)
-                        s_statusProxy.OnStatusMessage(MessageLevel.Warning, message);
-                    else if ((entry.filter.Flags & LogFilters.DEBUG) > 0)
-                        s_statusProxy.OnStatusMessage(MessageLevel.Debug, message);
-                    else
-                        s_statusProxy.OnStatusMessage(MessageLevel.Info, message);
-                }
-            }
-        }
-
-        private static string FormatLogEntry(LogEntry entry)
-        {
-            StringBuilder entryText = new();
-
-            entryText.Append(entry.message);
-            entryText.Append($" ({LogFilters.GetFilterString(entry.filter.Flags)})");
-
-            if (!string.IsNullOrWhiteSpace(entry.location))
-                entryText.Append($" @ {entry.location}");
-
-            return entryText.ToString();
-        }
-    }
 
     // Constants
-    private const double DefaultPollingInterval = 2.0D;
+    private const string DefaultPollingIntervals = "Class0,Class1,Class2,Class3=2";
     private const double DefaultTimestampDifferentiation = 1.0D;
     private const bool DefaultMapQualityToStateFlags = true;
     private const bool DefaultPublishFlagsAsSeparateMeasurements = false;
@@ -118,24 +69,13 @@ public class DNP3InputAdapter : InputAdapterBase
     private const string DefaultQualityTagSuffix = "!FLAGS";
 
     // Fields
-    private TimeSpan m_pollingInterval;         // Interval, in seconds, at which the adapter will poll the DNP3 device
-    private MasterConfiguration m_masterConfig; // Configuration for the master set during the Initialize call
-    private TimeSeriesSOEHandler m_soeHandler;  // Time-series sequence of events handler
-    private IChannel m_channel;                 // Communications channel set during the AttemptConnection call and used in AttemptDisconnect
-    private bool m_active;                      // Flag that determines if the port/master has been added so that the resource can be cleaned up
+    private string m_pollingIntervals = string.Empty;                // Unparsed polling intervals
+    private List<(ClassField, TimeSpan)> m_pollingIntervalList = []; // Intervals at which the adapter will poll each class of data from the DNP3 device
+    private MasterConfiguration m_masterConfig;                      // Configuration for the master set during the Initialize call
+    private TimeSeriesSOEHandler m_soeHandler;                       // Time-series sequence of events handler
+    private IChannel m_channel;                                      // Communications channel set during the AttemptConnection call and used in AttemptDisconnect
+    private bool m_active;                                           // Flag that determines if the port/master has been added so that the resource can be cleaned up
     private bool m_disposed;
-
-    #endregion
-
-    #region [ Constructors ]
-
-    /// <summary>
-    /// Creates a new instance of the <see cref="DNP3Adapters"/> class.
-    /// </summary>
-    public DNP3InputAdapter()
-    {
-        m_pollingInterval = TimeSpan.FromSeconds(DefaultPollingInterval);
-    }
 
     #endregion
 
@@ -212,15 +152,44 @@ public class DNP3InputAdapter : InputAdapterBase
     }
 
     /// <summary>
-    /// Gets or sets the interval, in seconds, at which the adapter will poll the DNP3 device.
+    /// Gets or sets the string representation of the list of intervals, in seconds, at which the
+    /// adapter will poll each class of data from the DNP3 device.
     /// </summary>
+    /// <remarks>
+    /// The string format for the polling intervals is a semicolon-separated list of intervals where
+    /// each interval is a comma separated list of class names followed by an equals sign and the
+    /// interval in seconds. For example: <c>Class0,Class1=2; Class2=10; Class3=30</c> would configure
+    /// the adapter to poll Class 0 and Class 1 every 2 seconds, Class 2 every 10 seconds, and Class 3
+    /// every 30 seconds. The class names should be one of 'Class0', 'Class1', 'Class2', or 'Class3'.
+    /// </remarks>
     [ConnectionStringParameter]
-    [Description("Define the interval, in seconds, at which the adapter will poll the DNP3 device.")]
-    [DefaultValue(DefaultPollingInterval)]
-    public double PollingInterval
+    [Description(
+        "Define the semicolon-separated list of intervals, in seconds, at which the adapter will " +
+        "poll each class of data from the DNP3 device. The string format for the polling intervals " +
+        "is a semicolon-separated list of intervals where each interval is a comma separated list " +
+        "of class names followed by an equals sign and the interval in seconds.\r\n\r\nFor example: " +
+        "\"Class0,Class1=2; Class2=10; Class3=30\" would configure the adapter to poll Class 0 and " +
+        "Class 1 every 2 seconds, Class 2 every 10 seconds, and Class 3 every 30 seconds. The class " +
+        "names should be one of 'Class0', 'Class1', 'Class2', or 'Class3'.")]
+    [DefaultValue(DefaultPollingIntervals)]
+    public string PollingIntervals
     {
-        get => m_pollingInterval.TotalSeconds;
-        set => m_pollingInterval = TimeSpan.FromSeconds(value);
+        get => m_pollingIntervals;
+        set
+        {
+            m_pollingIntervals = value;
+            m_pollingIntervalList = ParsePollingIntervals(value);
+        }
+    }
+
+    /// <inheritdoc/>
+    public string ChannelID
+    {
+        get
+        {
+            TcpClientConfig tcpConfig = m_masterConfig.client;
+            return $"{tcpConfig.address}:{tcpConfig.port}";
+        }
     }
 
     /// <summary>
@@ -273,18 +242,7 @@ public class DNP3InputAdapter : InputAdapterBase
                 m_soeHandler = null;
             }
 
-            lock (s_adapters)
-            {
-                // Remove this adapter from the available list
-                s_adapters.Remove(this);
-
-                // See if we are disposing the status proxy instance
-                if (ReferenceEquals(s_statusProxy, this))
-                {
-                    // Attempt to find a new status proxy
-                    s_statusProxy = s_adapters.Count > 0 ? s_adapters[0] : null;
-                }
-            }
+            s_logHandler.UnregisterAdapter(this);
         }
         finally
         {
@@ -352,21 +310,18 @@ public class DNP3InputAdapter : InputAdapterBase
 
         m_soeHandler.TimestampDifferentiation = TimeSpan.FromMilliseconds(TimestampDifferentiation);
 
-        if (settings.TryGetValue(nameof(PollingInterval), out setting) && double.TryParse(setting, out double pollingInterval))
-            PollingInterval = pollingInterval;
+        if (settings.TryGetValue(nameof(PollingIntervals), out setting))
+            PollingIntervals = setting;
+        else if (settings.TryGetValue("PollingInterval", out setting) && double.TryParse(setting, out double pollingInterval))
+            PollingIntervals = $"Class0,Class1,Class2,Class3={pollingInterval}";
+        else
+            PollingIntervals = DefaultPollingIntervals;
 
         // Attach to output measurements for DNP3 device - just informs routing engine of expected measurements
         if (OutputMeasurements is null || OutputMeasurements.Length == 0)
             OutputMeasurements = ParseOutputMeasurements(DataSource, false, $"FILTER ActiveMeasurements WHERE Device = '{Name}'");
 
-        lock (s_adapters)
-        {
-            // Add adapter to list of available adapters 
-            s_adapters.Add(this);
-
-            // If no adapter has been designated as the status proxy, assign this one
-            s_statusProxy ??= this;
-        }
+        s_logHandler.RegisterAdapter(this);
     }
 
     /// <summary>
@@ -379,20 +334,19 @@ public class DNP3InputAdapter : InputAdapterBase
     protected override void AttemptConnection()
     {
         TcpClientConfig tcpConfig = m_masterConfig.client;
-        string endPoint = $"{tcpConfig.address}:{tcpConfig.port}";
         TimeSpan minRetry = TimeSpan.FromMilliseconds(tcpConfig.minRetryMs);
         TimeSpan maxRetry = TimeSpan.FromMilliseconds(tcpConfig.maxRetryMs);
         TimeSpan reconnectDelay = TimeSpan.FromMilliseconds(tcpConfig.reconnectDelayMs);
         ChannelRetry channelRetry = new(minRetry, maxRetry, reconnectDelay);
-        IChannelListener channelListener = new ChannelListener(state => OnStatusMessage(MessageLevel.Info, $"{endPoint} - Channel state change: {state}"));
+        IChannelListener channelListener = new ChannelListener(state => OnStatusMessage(MessageLevel.Info, $"{ChannelID} - Channel state change: {state}"));
 
-        IChannel channel = s_manager.AddTCPClient(endPoint, tcpConfig.level, channelRetry, [new IPEndpoint(tcpConfig.address, tcpConfig.port)], channelListener);
+        IChannel channel = s_manager.AddTCPClient(ChannelID, tcpConfig.level, channelRetry, [new IPEndpoint(tcpConfig.address, tcpConfig.port)], channelListener);
         m_channel = channel;
 
-        IMaster master = channel.AddMaster(endPoint, m_soeHandler, DefaultMasterApplication.Instance, m_masterConfig.master);
+        IMaster master = channel.AddMaster(ChannelID, m_soeHandler, DefaultMasterApplication.Instance, m_masterConfig.master);
 
-        if (m_pollingInterval > TimeSpan.Zero)
-            master.AddClassScan(ClassField.AllClasses, m_pollingInterval, m_soeHandler, TaskConfig.Default);
+        foreach ((ClassField classField, TimeSpan interval) pollingInterval in m_pollingIntervalList)
+            master.AddClassScan(pollingInterval.classField, pollingInterval.interval, m_soeHandler, TaskConfig.Default);
 
         master.Enable();
         m_active = true;
@@ -429,24 +383,33 @@ public class DNP3InputAdapter : InputAdapterBase
         return $"Received {ProcessedMeasurements:N0} measurements so far...".CenterText(maxLength);
     }
 
+    void IDnp3Adapter.OnProcessException(MessageLevel level, Exception exception)
+    {
+        OnProcessException(level, exception);
+    }
+
+    void IDnp3Adapter.OnStatusMessage(MessageLevel level, string status)
+    {
+        OnStatusMessage(level, status);
+    }
+
     #endregion
 
     #region [ Static ]
 
     // Static Fields
 
+    // Proxy log handler with registered DNP3 input adapters instances
+    private static readonly IaonProxyLogHandler<DNP3InputAdapter> s_logHandler;
+
     // DNP3 manager shared across all the DNP3 input adapters, concurrency level defaults to number of processors
     private static readonly IDNP3Manager s_manager;
-
-    // We maintain a list of dnp3 adapters that can be used as status adapters for proxying messages from manager
-    private static readonly List<DNP3InputAdapter> s_adapters;
-    private static DNP3InputAdapter s_statusProxy;
 
     // Static Constructor
     static DNP3InputAdapter()
     {
-        s_adapters = [];
-        s_manager = DNP3ManagerFactory.CreateManager(Environment.ProcessorCount, new IaonProxyLogHandler());
+        s_logHandler = new IaonProxyLogHandler<DNP3InputAdapter>();
+        s_manager = DNP3ManagerFactory.CreateManager(Environment.ProcessorCount, s_logHandler);
     }
 
     // Static Methods
@@ -456,6 +419,45 @@ public class DNP3InputAdapter : InputAdapterBase
 
         using TextReader reader = new StreamReader(FilePath.GetAbsolutePath(path));
         return (T)serializer.Deserialize(reader);
+    }
+
+    private static List<(ClassField, TimeSpan)> ParsePollingIntervals(string text)
+    {
+        return text
+            .Split(';')
+            .Select(interval => interval.Trim())
+            .Where(interval => !string.IsNullOrEmpty(interval))
+            .Select(ParsePollingInterval)
+            .ToList();
+
+        (ClassField, TimeSpan) ParsePollingInterval(string pollingInterval)
+        {
+            string[] parts = pollingInterval.Split('=');
+
+            if (parts.Length != 2)
+                throw new FormatException($"Expected polling interval in the form \"<ClassList>=<Interval>\", got \"{pollingInterval}\"");
+
+            PointClass[] pointClasses = parts[0]
+                .Split(',')
+                .Select(ParsePointClass)
+                .ToArray();
+
+            ClassField classField = ClassField.From(pointClasses);
+
+            if (!double.TryParse(parts[1], out double seconds))
+                throw new FormatException($"Expected interval number of seconds, got {parts[1]}");
+
+            TimeSpan interval = TimeSpan.FromSeconds(seconds);
+            return (classField, interval);
+        }
+
+        PointClass ParsePointClass(string className)
+        {
+            if (!Enum.TryParse(className, true, out PointClass pointClass))
+                throw new FormatException($"Expected valid point class name, got {className}");
+
+            return pointClass;
+        }
     }
 
     #endregion
